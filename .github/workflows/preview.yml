@@ -1,0 +1,81 @@
+# BubaPix private test site.
+#
+# Publishes the work branch (redesign-v2) of moshiko259-maker/bubapix to
+#   https://moshiko259-maker.github.io/bubapix-preview/
+# so the owner can try the site and its admin panel on his own address
+# before anything goes to the live site. The live site (main) is never touched.
+#
+# The work branch already contains the built pages (its own workflow builds
+# them), so this only copies them. It checks every 15 minutes and publishes
+# only when the work branch has changed. Search engines are asked not to
+# index this test copy.
+
+name: Publish test site
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Get the work branch
+        uses: actions/checkout@v4
+        with:
+          repository: moshiko259-maker/bubapix
+          ref: redesign-v2
+          path: site
+
+      - name: Has it changed since the last publish?
+        id: check
+        run: |
+          SHA=$(git -C site rev-parse HEAD)
+          LIVE=$(curl -fsS "https://moshiko259-maker.github.io/bubapix-preview/version.txt" 2>/dev/null || true)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          if [ "$SHA" = "$LIVE" ] && [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "No change ($SHA). Nothing to publish."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Publishing $SHA (was: ${LIVE:-nothing})."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare the test copy
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          mkdir _site
+          rsync -a --exclude '.git' --exclude '.github' --exclude 'node_modules' site/ _site/
+          # Test copy: not for search engines.
+          printf 'User-agent: *\nDisallow: /\n' > _site/robots.txt
+          find _site -name '*.html' -not -path '*/admin/*' -print0 | xargs -0 sed -i 's|<meta name="viewport" content="width=device-width, initial-scale=1">|<meta name="viewport" content="width=device-width, initial-scale=1">\n  <meta name="robots" content="noindex, nofollow">|'
+          echo "${{ steps.check.outputs.sha }}" > _site/version.txt
+          touch _site/.nojekyll
+
+      - uses: actions/configure-pages@v5
+        if: steps.check.outputs.skip != 'true'
+
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.check.outputs.skip != 'true'
+        with:
+          path: _site
+
+      - id: deployment
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/deploy-pages@v4
