@@ -6,7 +6,7 @@
 # before anything goes to the live site. The live site (main) is never touched.
 #
 # The work branch already contains the built pages (its own workflow builds
-# them), so this only copies them. It checks every 15 minutes and publishes
+# them), so this only copies them. It checks every 5 minutes (the shortest GitHub allows) and publishes
 # only when the work branch has changed. Search engines are asked not to
 # index this test copy.
 
@@ -14,7 +14,7 @@ name: Publish test site
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
   push:
     branches: [main]
