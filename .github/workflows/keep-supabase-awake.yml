@@ -1,0 +1,43 @@
+# Keeps the comments service (Supabase, free plan) awake.
+#
+# Supabase pauses a free project after a week without enough activity; then
+# the site's forms stop working. Once a day this reads the public ratings
+# summary of one project, the same small request any visitor's page makes.
+# It uses only the public address and the public "anon" key that every page
+# of the site already contains (read from the test site), so there is no
+# secret here. If the service does not answer, the run fails (shown in red
+# in the repository's Actions tab).
+#
+# Scheduled runs work only from this repository's default branch (main).
+# GitHub stops scheduled runs after 60 days without activity in the
+# repository; when the site goes live this should move to the main site's
+# repository.
+
+name: Keep comments service awake
+
+on:
+  schedule:
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ask the comments service for a ratings summary
+        run: |
+          set -euo pipefail
+          PAGE=$(curl -fsS "https://moshiko259-maker.github.io/bubapix-preview/he/contact/index.html")
+          CFG=$(printf '%s' "$PAGE" | sed -n 's/.*<script type="application\/json" id="community-data">\(.*\)<\/script>.*/\1/p' | head -1)
+          URL=$(printf '%s' "$CFG" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')
+          KEY=$(printf '%s' "$CFG" | python3 -c 'import json,sys; print(json.load(sys.stdin)["key"])')
+          case "$URL" in https://*.supabase.co) ;; *) echo "Unexpected service address: $URL"; exit 1;; esac
+          CODE=$(curl -sS -o /tmp/out.json -w '%{http_code}' -X POST "$URL/rest/v1/rpc/rating_summary" \
+            -H "apikey: $KEY" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+            --data '{"p_slug":"pop-life"}')
+          echo "Answer: $CODE $(head -c 200 /tmp/out.json)"
+          [ "$CODE" = "200" ]
